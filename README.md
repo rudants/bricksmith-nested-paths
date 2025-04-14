@@ -1,18 +1,18 @@
-# @bricksmith/nested-path
+# bricksmith-nested-paths
 
 A plugin for Bricksmith that enables dot-notation path support for accessing nested properties in both source and target objects.
 
 ## Installation
 
 ```bash
-npm install @bricksmith/nested-path
+npm install bricksmith-nested-paths
 ```
 
 ## Usage
 
 ```typescript
 import { Bricksmith } from 'bricksmith';
-import nestedPathPlugin from '@bricksmith/nested-path';
+import nestedPathPlugin from 'bricksmith-nested-paths';
 
 const bricksmith = new Bricksmith(blueprint, {
   tools: [nestedPathPlugin]
