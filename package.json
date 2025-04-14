@@ -1,6 +1,6 @@
 {
   "name": "bricksmith-nested-paths",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Nested path plugin for Bricksmith - allows using dot notation to access nested properties",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
