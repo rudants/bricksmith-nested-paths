@@ -1,22 +1,9 @@
-import type { Brick, Blueprint } from 'bricksmith';
-
-export interface WorkSpace<Source = any, Target = any> {
-  blueprint: Blueprint<Source, Target>;
-  options?: {
-    skipNull?: boolean;
-    skipUndefined?: boolean;
-    strict?: boolean;
-    [key: string]: any;
-  };
-}
-
-export interface BrickTool<Source = any, Target = any> {
-  name: string;
-  beforeBuild?: (materials: Source, workspace: WorkSpace<Source, Target>) => Source | null;
-  beforeBrick?: (brick: Brick<Source, Target>, materials: Source, workspace: WorkSpace<Source, Target>) => Source | null;
-  afterBrick?: (brick: Brick<Source, Target>, value: unknown, result: Target, workspace: WorkSpace<Source, Target>) => void;
-  afterBuild?: (result: Target, workspace: WorkSpace<Source, Target>) => void;
-}
+import type { Brick, BrickTool, WorkSpace } from 'bricksmith';
+import { PathProcessor } from './modules/PathProcessor';
+import { PathType, ExtendedWorkspaceOptions } from './types';
+import { PATH_CONSTANTS } from './constants/path';
+import { NestedObjectPathHandler } from './modules/handlers/NestedObjectPathHandler';
+import { WildcardArrayPathHandler } from './modules/handlers/WildcardArrayPathHandler';
 
 /**
  * Plugin for processing nested paths in source and target objects
@@ -36,125 +23,33 @@ export interface BrickTool<Source = any, Target = any> {
  */
 export class NestedPathPlugin<Source = any, Target = any> implements BrickTool<Source, Target> {
   name = 'nested-path';
+  private pathProcessor: PathProcessor;
 
-  /**
-   * Gets a value from an object by nested path
-   * 
-   * @param obj - Source object
-   * @param path - Dot notation path (e.g., 'user.address.city')
-   * @returns Value at the specified path or undefined if the path doesn't exist
-   */
-  private getNestedValue(obj: Record<string, any>, path: string): any {
-    return path.split('.').reduce((acc, part) => {
-      if (acc === undefined || acc === null) {
-        return acc;
-      }
-      return acc[part];
-    }, obj);
-  }
-
-  /**
-   * Checks if an object is empty (has no own properties)
-   * 
-   * @param obj - Object to check
-   * @returns True if the object is empty, false otherwise
-   */
-  private isEmptyObject(obj: any): boolean {
-    return obj !== null && 
-           typeof obj === 'object' && 
-           !Array.isArray(obj) && 
-           Object.keys(obj).length === 0;
-  }
-
-  /**
-   * Removes empty objects from a target object
-   * Recursively checks and removes objects that have no properties
-   * 
-   * @param obj - Target object
-   * @param path - Path to start cleanup from
-   */
-  private cleanupEmptyObjects(obj: Record<string, any>, path: string): void {
-    const parts = path.split('.');
+  constructor() {
+    // Initialize the path processor
+    this.pathProcessor = new PathProcessor();
     
-    // If we're looking at a path with only one part
-    if (parts.length === 1) {
-      if (this.isEmptyObject(obj[parts[0]])) {
-        delete obj[parts[0]];
-      }
-      return;
-    }
+    // Register handler for nested objects
+    this.pathProcessor.registerHandler(
+      PathType.NESTED_OBJECT, 
+      new NestedObjectPathHandler()
+    );
     
-    // For multi-part paths, recursively check each part
-    const current = parts[0];
-    const rest = parts.slice(1).join('.');
+    // Register handler for wildcard arrays
+    this.pathProcessor.registerHandler(
+      PathType.WILDCARD_ARRAY,
+      new WildcardArrayPathHandler()
+    );
     
-    if (obj[current] && typeof obj[current] === 'object') {
-      this.cleanupEmptyObjects(obj[current], rest);
-      
-      // After recursion, check if the current object is now empty
-      if (this.isEmptyObject(obj[current])) {
-        delete obj[current];
-      }
-    }
-  }
-
-  /**
-   * Sets a value in an object by nested path
-   * Creates intermediate objects if they don't exist
-   * 
-   * @param obj - Target object
-   * @param path - Dot notation path (e.g., 'user.address.city')
-   * @param value - Value to set
-   * @param options - Options for value handling
-   * @returns True if value was set, false if it was skipped
-   */
-  private setNestedValue(
-    obj: Record<string, any>, 
-    path: string, 
-    value: any, 
-    options: { 
-      skipNull?: boolean; 
-      skipUndefined?: boolean; 
-      strict?: boolean;
-      preserveNull?: boolean; 
-    } = {}
-  ): boolean {
-    // Skip setting null values if skipNull is true and preserveNull is not true
-    if (value === null && options.skipNull && !options.preserveNull) {
-      return false;
-    }
-    
-    // Skip setting undefined values if skipUndefined is true
-    if (value === undefined && options.skipUndefined) {
-      return false;
-    }
-    
-    // In strict mode, skip both null and undefined unless preserveNull is true for null
-    if (options.strict) {
-      if (value === undefined || (value === null && !options.preserveNull)) {
-        return false;
-      }
-    }
-
-    const parts = path.split('.');
-    const last = parts.pop()!;
-    const target = parts.reduce((acc, part) => {
-      if (acc[part] === undefined) {
-        acc[part] = {};
-      }
-      return acc[part];
-    }, obj);
-    
-    target[last] = value;
-    return true;
+    // In the future, other handlers for different path types can be registered here
   }
 
   /**
    * Processes nested paths in the source object
    */
   beforeBrick(brick: Brick<Source, Target>, materials: Source, _workspace: WorkSpace<Source, Target>): Source | null {
-    if (typeof brick.source === 'string' && brick.source.includes('.')) {
-      const value = this.getNestedValue(materials as Record<string, any>, brick.source);
+    if (typeof brick.source === 'string' && (brick.source.includes(PATH_CONSTANTS.DOT_SEPARATOR) || brick.source.includes(PATH_CONSTANTS.WILDCARD_PATTERN))) {
+      const value = this.pathProcessor.getNestedValue(materials as Record<string, any>, brick.source);
       return { ...materials, [brick.source]: value } as Source;
     }
     return null;
@@ -166,12 +61,12 @@ export class NestedPathPlugin<Source = any, Target = any> implements BrickTool<S
    * Respects skipNull, skipUndefined, and strict options
    */
   afterBrick(brick: Brick<Source, Target>, value: unknown, result: Target, workspace: WorkSpace<Source, Target>): void {
-    if (typeof brick.target === 'string' && brick.target.includes('.')) {
+    if (typeof brick.target === 'string' && (brick.target.includes(PATH_CONSTANTS.DOT_SEPARATOR) || brick.target.includes(PATH_CONSTANTS.WILDCARD_PATTERN))) {
       // Get options from workspace
-      const options = workspace.options || {};
+      const options = workspace.options as ExtendedWorkspaceOptions || {};
       
       // Create only the nested structure, not the dot-notation field
-      const valueWasSet = this.setNestedValue(
+      const valueWasSet = this.pathProcessor.setNestedValue(
         result as Record<string, any>, 
         brick.target, 
         value, 
@@ -185,7 +80,7 @@ export class NestedPathPlugin<Source = any, Target = any> implements BrickTool<S
       
       // If value was not set due to option constraints, clean up any empty objects
       if (!valueWasSet) {
-        this.cleanupEmptyObjects(result as Record<string, any>, brick.target);
+        this.pathProcessor.cleanupEmptyObjects(result as Record<string, any>, brick.target);
       }
       
       // Remove the dot-notation field if it was automatically added by Bricksmith
@@ -200,12 +95,22 @@ export class NestedPathPlugin<Source = any, Target = any> implements BrickTool<S
    */
   afterBuild(result: Target, _workspace: WorkSpace<Source, Target>): void {
     // Recursively check and remove all empty objects in the result
+    const isEmpty = (obj: any): boolean => {
+      return obj !== null && 
+             typeof obj === 'object' && 
+             !Array.isArray(obj) && 
+             Object.keys(obj).length === 0;
+    };
+    
     for (const key in result) {
-      if (this.isEmptyObject(result[key])) {
+      if (isEmpty(result[key])) {
         delete result[key];
       }
     }
   }
 }
+
+// Reexport types and constants for convenience
+export { PathType, PATH_CONSTANTS };
 
 export default new NestedPathPlugin(); 

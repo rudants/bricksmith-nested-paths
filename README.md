@@ -35,6 +35,24 @@ const blueprint = {
 };
 ```
 
+### Array Wildcards
+
+Supports wildcard operations for arrays:
+
+```typescript
+const blueprint = {
+  bricks: [
+    {
+      source: 'user.tags[*].name',
+      target: 'tagNames'
+    }
+  ]
+};
+
+// Will extract the 'name' property from each tag in the array
+// Result: { tagNames: ['admin', 'user', 'guest'] }
+```
+
 ### Optional Properties
 
 Handles optional properties gracefully:
@@ -59,8 +77,8 @@ Works seamlessly with transform functions:
 ```typescript
 const blueprint = {
   bricks: [
-    { 
-      source: 'user.name', 
+    {
+      source: 'user.name',
       target: 'fullName',
       transform: (name) => name.toUpperCase()
     },
@@ -80,8 +98,8 @@ Supports `preserveNull` option to maintain null values:
 ```typescript
 const blueprint = {
   bricks: [
-    { 
-      source: 'user.address.street', 
+    {
+      source: 'user.address.street',
       target: 'location.street',
       preserveNull: true
     }
@@ -125,19 +143,60 @@ const bricksmith = new Bricksmith<Source, Target>(blueprint, {
 });
 ```
 
+## Architecture
+
+The plugin uses a modular, extensible architecture:
+
+- `src/modules/PathProcessor.ts`: Core class that detects path types and delegates to appropriate handlers
+- `src/types/index.ts`: Contains interfaces and types used across the project
+- `src/constants/path.ts`: Constants used for path parsing and processing
+- `src/modules/handlers/`: Implementations of different path handlers:
+  - `NestedObjectPathHandler.ts`: Handles dot notation paths (e.g., 'user.address.city')
+  - `WildcardArrayPathHandler.ts`: Handles array wildcard notation (e.g., 'users[*].name')
+
+This design allows for easy extension to support different path formats in the future:
+
+```typescript
+enum PathType {
+  NESTED_OBJECT = 'NESTED_OBJECT',
+  WILDCARD_ARRAY = 'WILDCARD_ARRAY',
+  // Future path types can be added here
+}
+```
+
+### Adding a Custom Path Handler
+
+You can extend the system with your own path handler:
+
+```typescript
+import { PathHandler, PathType } from 'bricksmith-nested-paths/types';
+import { PathProcessor } from 'bricksmith-nested-paths/modules/PathProcessor';
+
+// Define a new path type
+enum CustomPathType {
+  MY_CUSTOM_TYPE = 'MY_CUSTOM_TYPE'
+}
+
+// Implement a handler for your custom path type
+class MyCustomPathHandler implements PathHandler {
+  getNestedValue(obj, path) { /* implementation */ }
+  setNestedValue(obj, path, value, options) { /* implementation */ }
+  cleanupEmptyObjects(obj, path) { /* implementation */ }
+}
+
+// Register your handler with the path processor
+const pathProcessor = new PathProcessor();
+pathProcessor.registerHandler(
+  CustomPathType.MY_CUSTOM_TYPE,
+  new MyCustomPathHandler()
+);
+```
+
 ## Limitations
 
 1. Paths must use dot notation (e.g., `user.address.city`)
-2. Array access is not supported (e.g., `users[0].name`)
+2. Only wildcard array access is supported (e.g., `users[*].name`) for bulk operations
 3. Special characters in property names are not supported
-
-## Best Practices
-
-1. Use descriptive property names in paths
-2. Keep path depth reasonable (avoid deeply nested paths)
-3. Handle optional properties appropriately
-4. Use transform functions for complex value transformations
-5. Consider using `preserveNull` when null values are meaningful
 
 ## Examples
 
@@ -176,54 +235,30 @@ const result = bricksmith.build(source);
 // }
 ```
 
-### Complex Transformation
+### Array Wildcard Example
 
 ```typescript
 const source = {
-  user: {
-    name: 'John Doe',
-    address: {
-      coordinates: {
-        lat: 40.7128,
-        lng: -74.0060
-      }
-    }
+  products: {
+    categories: [
+      { id: 101, attributes: { color: 'red', size: 'small' } },
+      { id: 102, attributes: { color: 'blue', size: 'medium' } },
+      { id: 103, attributes: { color: 'green', size: 'large' } }
+    ]
   }
 };
 
 const blueprint = {
   bricks: [
-    {
-      source: 'user.name',
-      target: 'fullName',
-      transform: (name) => name.toUpperCase()
-    },
-    {
-      source: 'user.address.coordinates.lat',
-      target: 'location.coordinates.latitude',
-      transform: (lat) => Number(lat.toFixed(2))
-    },
-    {
-      source: 'user.address.coordinates.lng',
-      target: 'location.coordinates.longitude',
-      transform: (lng) => Number(lng.toFixed(2))
-    }
+    { source: 'products.categories[*].attributes.color', target: 'colors' },
+    { source: 'products.categories[*].id', target: 'categoryIds' }
   ]
 };
 
-const bricksmith = new Bricksmith(blueprint, {
-  tools: [nestedPathPlugin]
-});
-
 const result = bricksmith.build(source);
 // {
-//   fullName: 'JOHN DOE',
-//   location: {
-//     coordinates: {
-//       latitude: 40.71,
-//       longitude: -74.01
-//     }
-//   }
+//   colors: ['red', 'blue', 'green'],
+//   categoryIds: [101, 102, 103]
 // }
 ```
 
