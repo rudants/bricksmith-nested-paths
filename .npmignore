@@ -1,0 +1,27 @@
+# Source code
+src/
+
+# Tests
+__tests__/
+*.test.ts
+jest.config.js
+
+# Development configs
+.github/
+.vscode/
+.editorconfig
+.eslintrc.js
+.prettierrc
+tsconfig.json
+.gitignore
+.travis.yml
+.idea/
+
+# Misc
+coverage/
+docs/
+examples/
+node_modules/
+.DS_Store
+*.log
+*.tgz 
